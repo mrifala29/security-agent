@@ -28,28 +28,20 @@ if [ -z "$SERVER" ] || [ -z "$ACTION_TARGET" ]; then
     echo "======================================================================"
     echo "Cara pakai:"
     echo "  ./security-hardening.sh <server_alias> <perintah_atau_skrip> [INPUT_KEY]"
-    echo ""
-    echo "Mode Otomatis (Full Suite):"
-    echo "  audit            : Jalankan SEMUA AUDIT (ports, triage, ssh_users)"
-    echo "  evaluasi         : Jalankan SEMUA EVALUASI (verify_ports, verify_triage, verify_ssh)"
-    echo ""
-    echo "Mode Per Skrip Spesifik:"
+    echo "Mode Praktis (Sesuai Tahap):"
     echo "  [AUDIT]"
-    echo "    check_ports           : Cek port publik 0.0.0.0 & IP aktif"
-    echo "    check_port_impact     : Analisis dampak: pastikan tidak ada koneksi aktif yang terganggu"
+    echo "    audit                 : Jalankan audit lengkap (check_ports, check_triage, check_ssh_users)"
+    echo "    check_ports           : Cek port sensitif 0.0.0.0 & analisis dampak koneksi (DIGABUNG)"
     echo "    check_triage          : Cek sisa cron job, ssh key asing, proses /tmp"
-    echo "    check_ssh_users       : Cek status config SSH & daftar akun"
+    echo "    check_ssh_users       : Cek status config SSH & privilege user"
     echo ""
     echo "  [ACTION]"
-    echo "    backup_databases      : Dump database (Postgres host & Docker) serta file docker-compose"
-    echo "    backup_configs        : Buat backup konfigurasi sensitif OS (/etc/ssh, ufw, cron)"
-    echo "    harden_ports          : Terapkan UFW default deny & whitelist IP internal (Anti-gangguan)"
+    echo "    backup                : Cadangkan config OS + Dump Database + Docker Compose (DIGABUNG)"
+    echo "    harden_ports          : Terapkan UFW default deny & whitelist IP internal"
     echo "    create_developer_user : Buat akun user developer baru & generate keypair otomatis"
     echo ""
     echo "  [EVALUASI]"
-    echo "    verify_ports          : Validasi penutupan port & status firewall"
-    echo "    verify_triage         : Validasi kebersihan sistem dari malware / cron"
-    echo "    verify_ssh            : Validasi konfigurasi akun & parameter SSH"
+    echo "    verify (atau evaluasi): Scorecard validasi kelulusan menyeluruh (DIGABUNG)"
     echo "======================================================================"
     exit 1
 fi
@@ -109,11 +101,8 @@ execute_single_script() {
     fi
     echo "======================================================================"
 
-    # 2. Eksekusi via SSH
-    sshpass -p "$PASS" ssh -o BatchMode=no -o StrictHostKeyChecking=accept-new "$SERVER" "sudo -S bash -s" <<EOF > "$raw_tmp" 2>&1
-$PASS
-$(cat "$s_file")
-EOF
+    # 2. Eksekusi via SSH dengan streaming file asli tanpa manipulasi variabel
+    (echo "$PASS"; cat "$s_file") | sshpass -p "$PASS" ssh -o BatchMode=no -o StrictHostKeyChecking=accept-new "$SERVER" "sudo -S bash -s" > "$raw_tmp" 2>&1
 
     # Bersihkan prompt sudo baris pertama
     sed -i '' '1{/^\[sudo\] password for /d;}' "$raw_tmp" 2>/dev/null || true
@@ -207,26 +196,14 @@ if [ "$ACTION_TARGET" == "audit" ]; then
     echo "Setiap hasil disimpan rapi dalam sub-direktori ID unik di: server/${SERVER}/audit/"
     echo "======================================================================"
 
-elif [ "$ACTION_TARGET" == "evaluasi" ]; then
+elif [ "$ACTION_TARGET" == "evaluasi" ] || [ "$ACTION_TARGET" == "verify" ]; then
     echo "======================================================================"
-    echo "MEMULAI FULL EVALUASI UNTUK: $SERVER"
+    echo "MEMULAI SCORECARD EVALUASI LENGKAP UNTUK: $SERVER"
     echo "======================================================================"
     echo ""
-
-    echo "[1/3] Menjalankan verify_ports..."
-    execute_single_script "verify_ports"
-    echo ""
-
-    echo "[2/3] Menjalankan verify_triage..."
-    execute_single_script "verify_triage"
-    echo ""
-
-    echo "[3/3] Menjalankan verify_ssh..."
-    execute_single_script "verify_ssh"
-    echo ""
-
+    execute_single_script "verify"
     echo "======================================================================"
-    echo "FULL EVALUASI SELESAI UNTUK: $SERVER"
+    echo "EVALUASI SELESAI UNTUK: $SERVER"
     echo "Scorecard lengkap tersimpan di: server/${SERVER}/evaluasi/"
     echo "======================================================================"
 
