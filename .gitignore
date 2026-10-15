@@ -1,0 +1,33 @@
+# Environment & credentials
+.env
+*.env
+.env.*
+!.env.example
+
+# SSH Keys and Certificates
+*.pem
+*.key
+*.id_rsa
+id_*
+*.pub
+
+# Logs and Server Output Data (Mencegah data server bocor ke Git)
+*.log
+server/**/*.log
+server/**/*.json
+server/**/*.tmp
+*.tmp
+
+# Pertahankan struktur folder di Git
+!server/**/.gitkeep
+!scripts/**/.gitkeep
+
+# OS & Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.bak
