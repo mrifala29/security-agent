@@ -2,21 +2,9 @@
 # ==============================================================================
 # Security Hardening CLI: security-hardening.sh
 # ==============================================================================
-# Menjalankan seluruh siklus keamanan (Audit, Action, Evaluasi) ke server via SSH.
-#
-# Penggunaan:
-#   1. Jalankan audit full (semua cek audit):
-#      ./security-hardening.sh <server_alias> audit
-#
-#   2. Jalankan skrip spesifik:
-#      ./security-hardening.sh <server_alias> <script_name>
-#
-# Contoh:
-#   ./security-hardening.sh server-dev audit
-#   ./security-hardening.sh server-dev check_ports
-#   ./security-hardening.sh server-dev backup_configs
-#   ./security-hardening.sh server-dev harden_ports
-#   ./security-hardening.sh server-dev verify_ports
+# Mengorganisir setiap eksekusi ke dalam sub-direktori unik:
+#   server/<server>/<stage>/<script_name>_<timestamp>/
+# Direktori ini menjadi "KEY" yang dapat dijadikan input memori ke step berikutnya.
 # ==============================================================================
 
 set -euo pipefail
@@ -32,30 +20,30 @@ source .env
 # 2. Cek argumen
 SERVER="${1:-}"
 ACTION_TARGET="${2:-}"
+INPUT_KEY="${3:-}"
 
-if [ -z "$SERVER" ]; then
+if [ -z "$SERVER" ] || [ -z "$ACTION_TARGET" ]; then
     echo "======================================================================"
     echo "SECURITY HARDENING CLI"
     echo "======================================================================"
     echo "Cara pakai:"
-    echo "  ./security-hardening.sh <server_alias> <perintah_atau_skrip>"
+    echo "  ./security-hardening.sh <server_alias> <perintah_atau_skrip> [INPUT_KEY]"
     echo ""
-    echo "Mode Otomatis:"
-    echo "  audit            : Jalankan AUDIT FULL (semua cek: ports, triage, ssh)"
+    echo "Contoh Perintah:"
+    echo "  1. Audit Full (menjalankan semua audit & membuat folder key masing-masing):"
+    echo "     ./security-hardening.sh server-dev audit"
     echo ""
-    echo "Mode Per Skrip:"
-    echo "  [AUDIT]"
-    echo "    check_ports           : Cek port publik 0.0.0.0 & IP aktif"
-    echo "    check_triage          : Cek sisa cron job, ssh key asing, proses /tmp"
-    echo "    check_ssh_users       : Cek status config SSH & daftar akun"
+    echo "  2. Audit Satuan:"
+    echo "     ./security-hardening.sh server-dev check_ports"
+    echo "     ./security-hardening.sh server-dev check_triage"
+    echo "     ./security-hardening.sh server-dev check_ssh_users"
     echo ""
-    echo "  [ACTION]"
-    echo "    backup_configs        : Buat backup konfigurasi sensitif di server"
-    echo "    harden_ports          : Terapkan UFW default deny & whitelist IP internal"
-    echo "    create_developer_user : Buat akun user developer baru dengan SSH key"
+    echo "  3. Action (bisa menerima input key hasil audit sebelumnya):"
+    echo "     ./security-hardening.sh server-dev backup_configs"
+    echo "     ./security-hardening.sh server-dev harden_ports [KEY_AUDIT_OPTIONAL]"
     echo ""
-    echo "  [EVALUASI]"
-    echo "    verify_ports          : Validasi apakah port berhasil diamankan"
+    echo "  4. Evaluasi:"
+    echo "     ./security-hardening.sh server-dev verify_ports [KEY_ACTION_OPTIONAL]"
     echo "======================================================================"
     exit 1
 fi
@@ -70,10 +58,11 @@ if [ -z "$PASS" ]; then
 fi
 
 # ==============================================================================
-# FUNGSI EKSEKUTOR SKRIP
+# FUNGSI EKSEKUTOR SKRIP DENGAN STRUKTUR SUB-DIREKTORI KEY
 # ==============================================================================
 execute_single_script() {
     local s_name="$1"
+    local ref_key="${2:-}"
     local s_file=""
     local stage=""
 
@@ -94,20 +83,30 @@ execute_single_script() {
         exit 1
     fi
 
-    local out_dir="server/${SERVER}/${stage}"
-    mkdir -p "$out_dir"
-
+    # 1. Tentukan RUN KEY dan Folder Tujuan
     local ts
     ts=$(date +"%Y%m%d_%H%M%S")
+    local run_key="${s_name}_${ts}"
+    local run_dir="server/${SERVER}/${stage}/${run_key}"
+    mkdir -p "$run_dir"
+
+    # Buat pointer link ke run terbaru
+    ln -sfn "$run_key" "server/${SERVER}/${stage}/${s_name}_latest" 2>/dev/null || true
+
     local raw_tmp
     raw_tmp=$(mktemp)
-    local log_file="${out_dir}/${s_name}_${ts}.log"
+    local log_file="${run_dir}/${s_name}.log"
 
     echo "======================================================================"
     echo "Menjalankan [$stage] '$s_file' ke '$SERVER' ..."
-    echo "Log: $log_file"
+    echo "Key Folder : $run_key"
+    echo "Direktori  : $run_dir/"
+    if [ -n "$ref_key" ]; then
+        echo "Input Key  : $ref_key (Rujukan dari tahap sebelumnya)"
+    fi
     echo "======================================================================"
 
+    # 2. Eksekusi via SSH
     sshpass -p "$PASS" ssh -o BatchMode=no -o StrictHostKeyChecking=accept-new "$SERVER" "sudo -S bash -s" <<EOF > "$raw_tmp" 2>&1
 $PASS
 $(cat "$s_file")
@@ -116,7 +115,7 @@ EOF
     # Bersihkan prompt sudo baris pertama
     sed -i '' '1{/^\[sudo\] password for /d;}' "$raw_tmp" 2>/dev/null || true
 
-    # Pisahkan laporan untuk konsol vs state data JSON (jika ada marker)
+    # 3. Pisahkan output konsol dan file state JSON
     if grep -q "###PORT_STATE_META###" "$raw_tmp"; then
         sed '/###PORT_STATE_META###/,$d' "$raw_tmp" | tee "$log_file"
 
@@ -125,9 +124,10 @@ EOF
         crit_ports=$(grep -A 1 "###CRIT_PORTS_JSON###" "$raw_tmp" | tail -n 1)
         int_whitelist=$(grep -A 1 "###INTERNAL_WHITELIST_JSON###" "$raw_tmp" | tail -n 1)
 
-        state_json="${out_dir}/ports_state.json"
+        state_json="${run_dir}/ports_state.json"
         cat <<JSON_EOF > "$state_json"
 {
+  "key": "$run_key",
   "server": "$SERVER",
   "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
   "meta": $meta,
@@ -135,16 +135,26 @@ EOF
   "internal_whitelist_needed": $int_whitelist
 }
 JSON_EOF
-        cp "$state_json" "${out_dir}/ports_state_${ts}.json"
         echo ""
-        echo "State memori tersimpan di: $state_json"
+        echo "State Memori : $state_json"
     else
         cat "$raw_tmp" | tee "$log_file"
     fi
 
+    # 4. Catat Metadata Key jika ada input dari tahap sebelumnya
+    if [ -n "$ref_key" ]; then
+        cat <<META_EOF > "${run_dir}/input_ref.json"
+{
+  "current_key": "$run_key",
+  "source_input_key": "$ref_key",
+  "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+}
+META_EOF
+    fi
+
     rm -f "$raw_tmp"
     echo ""
-    echo "Selesai: $s_name"
+    echo "Selesai: $s_name (Key: $run_key)"
 }
 
 # ==============================================================================
@@ -153,27 +163,31 @@ JSON_EOF
 if [ "$ACTION_TARGET" == "audit" ]; then
     echo "======================================================================"
     echo "MEMULAI FULL AUDIT UNTUK: $SERVER"
-    echo "Target: check_ports -> check_triage -> check_ssh_users"
     echo "======================================================================"
     echo ""
     
-    echo "[1/3] Menjalankan Pemeriksaan Port & Firewall..."
+    echo "[1/3] Menjalankan check_ports..."
     execute_single_script "check_ports"
     echo ""
 
-    echo "[2/3] Menjalankan Pemeriksaan Sisa Penyusup (Triage)..."
+    echo "[2/3] Menjalankan check_triage..."
     execute_single_script "check_triage"
     echo ""
 
-    echo "[3/3] Menjalankan Pemeriksaan Konfigurasi SSH & User..."
+    echo "[3/3] Menjalankan check_ssh_users..."
     execute_single_script "check_ssh_users"
     echo ""
 
     echo "======================================================================"
     echo "FULL AUDIT SELESAI UNTUK: $SERVER"
-    echo "Semua log tersimpan di: server/${SERVER}/audit/"
-    echo "State memori ports tersimpan di: server/${SERVER}/audit/ports_state.json"
+    echo "Setiap hasil disimpan rapi dalam sub-direktori unik di: server/${SERVER}/audit/"
     echo "======================================================================"
 else
-    execute_single_script "$ACTION_TARGET"
+    # Jika menjalankan action/evaluasi tanpa input key eksplisit, coba cari key audit terbaru
+    RESOLVED_KEY="$INPUT_KEY"
+    if [ -z "$RESOLVED_KEY" ] && [ -L "server/${SERVER}/audit/check_ports_latest" ]; then
+        RESOLVED_KEY=$(readlink "server/${SERVER}/audit/check_ports_latest" || true)
+    fi
+
+    execute_single_script "$ACTION_TARGET" "$RESOLVED_KEY"
 fi

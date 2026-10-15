@@ -36,9 +36,17 @@ security-agent/
 │
 ├── server/                                   # Database Log & State Nyata per Server
 │   ├── server-dev/
-│   │   ├── audit/                            # Log scan audit & ports_state.json (Memori Data)
-│   │   ├── action/                           # Log eksekusi tindakan & catatan backup
-│   │   └── evaluasi/                         # Log hasil scorecard verifikasi
+│   │   ├── audit/
+│   │   │   └── check_ports_20261015_132700/  # Direktori KEY unik per sesi eksekusi
+│   │   │       ├── check_ports.log           # Log output konsol pemeriksaan
+│   │   │       └── ports_state.json          # Memori data temuan (port & whitelist)
+│   │   ├── action/
+│   │   │   └── harden_ports_20261015_133000/ # Direktori KEY tindakan perbaikan
+│   │   │       ├── harden_ports.log          # Log eksekusi tindakan
+│   │   │       └── input_ref.json            # Metadata referensi key audit yang dirujuk
+│   │   └── evaluasi/
+│   │       └── verify_ports_20261015_133500/ # Direktori KEY evaluasi scorecard
+│   │           └── verify_ports.log          # Hasil verifikasi validasi
 │   └── server-prod/                          # (Struktur sama untuk server produksi lainnya)
 │
 ├── security-hardening.sh                                  # Mesin Penggerak / Runner CLI Utama (JANGAN DIHAPUS)
