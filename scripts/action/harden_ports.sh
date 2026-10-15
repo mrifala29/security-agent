@@ -84,12 +84,24 @@ sudo ufw allow in on br-+ comment 'Docker Custom Bridges' 2>/dev/null || true
 
 HOST_PUB_IP="163.128.54.32"
 OLD_DEV_IP="103.230.81.70"
+PROD_PUB_IP="103.230.81.47"
+AIRPAY_PUB_IP="13.213.172.18"
+AWS_PUB_IP="54.255.121.15"
 
 echo "   - Whitelist IP Publik Server ($HOST_PUB_IP) untuk Hairpin NAT Microservices..."
 sudo ufw allow from "$HOST_PUB_IP" comment 'Server Self Public IP (Microservices Loopback)'
 
 echo "   - Whitelist IP Server Dev Lama ($OLD_DEV_IP)..."
 sudo ufw allow from "$OLD_DEV_IP" comment 'Old Dev Server IP'
+
+echo "   - Whitelist IP Server Prod ($PROD_PUB_IP)..."
+sudo ufw allow from "$PROD_PUB_IP" comment 'Server Prod Public IP'
+
+echo "   - Whitelist IP Server Airpay ($AIRPAY_PUB_IP)..."
+sudo ufw allow from "$AIRPAY_PUB_IP" comment 'Server Airpay AWS SG'
+
+echo "   - Whitelist IP Server AWS ($AWS_PUB_IP)..."
+sudo ufw allow from "$AWS_PUB_IP" comment 'Server AWS Cloud'
 
 echo ""
 echo "5. Mengamankan Docker Published Database Ports (Rantai DOCKER-USER):"
@@ -104,12 +116,15 @@ if [ -n "$EXT_IF" ]; then
     # 1. Izinkan koneksi yang sudah terbentuk (Established/Related)
     sudo iptables -A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
     
-    # 2. Whitelist Subnet Internal & Hairpin NAT
+    # 2. Whitelist Subnet Internal & Hairpin NAT & Sibling Servers
     sudo iptables -A DOCKER-USER -s 10.0.0.0/8 -j ACCEPT
     sudo iptables -A DOCKER-USER -s 172.16.0.0/12 -j ACCEPT
     sudo iptables -A DOCKER-USER -s 192.168.0.0/16 -j ACCEPT
     sudo iptables -A DOCKER-USER -s "$HOST_PUB_IP" -j ACCEPT
     sudo iptables -A DOCKER-USER -s "$OLD_DEV_IP" -j ACCEPT
+    sudo iptables -A DOCKER-USER -s "$PROD_PUB_IP" -j ACCEPT
+    sudo iptables -A DOCKER-USER -s "$AIRPAY_PUB_IP" -j ACCEPT
+    sudo iptables -A DOCKER-USER -s "$AWS_PUB_IP" -j ACCEPT
     
     # 3. Izinkan semua traffic antar-container lokal (bukan dari interface publik)
     sudo iptables -A DOCKER-USER ! -i "$EXT_IF" -j ACCEPT

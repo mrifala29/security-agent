@@ -40,14 +40,20 @@ if command -v ufw >/dev/null 2>&1; then
     fi
 fi
 
+# 4. Ambil pemetaan port Docker ke nama container
+TMP_DOCKER=$(mktemp)
+if command -v docker >/dev/null 2>&1; then
+    docker ps --format '{{.Ports}}\t{{.Names}}' 2>/dev/null > "$TMP_DOCKER" || true
+fi
+
 # ==============================================================================
 # PROSES LISTENING PORTS & DETEKSI PORT SENSITIF
 # ==============================================================================
 CRIT_PORTS_TEMP=$(mktemp)
 META_TEMP=$(mktemp)
-trap 'rm -f "$TMP_LISTEN" "$TMP_ESTAB" "$CRIT_PORTS_TEMP" "$META_TEMP"' EXIT
+trap 'rm -f "$TMP_LISTEN" "$TMP_ESTAB" "$CRIT_PORTS_TEMP" "$META_TEMP" "$TMP_DOCKER"' EXIT
 
-awk -v ufw_stat="$UFW_STATUS" -v crit_file="$CRIT_PORTS_TEMP" -v meta_file="$META_TEMP" '
+awk -v ufw_stat="$UFW_STATUS" -v crit_file="$CRIT_PORTS_TEMP" -v meta_file="$META_TEMP" -v docker_file="$TMP_DOCKER" '
 BEGIN {
     total_public = 0
     total_local = 0
@@ -55,6 +61,21 @@ BEGIN {
     total_ports = 0
     crit_count = 0
     other_pub_count = 0
+
+    if (docker_file != "") {
+        while ((getline dline < docker_file) > 0) {
+            split(dline, dparts, "\t")
+            ports_str = dparts[1]
+            cname = dparts[2]
+            pcount = split(ports_str, ptokens, ",")
+            for (p = 1; p <= pcount; p++) {
+                if (match(ptokens[p], /:([0-9]+)->/, pm)) {
+                    docker_map[pm[1]] = cname
+                }
+            }
+        }
+        close(docker_file)
+    }
 }
 {
     proto = $1
@@ -73,6 +94,10 @@ BEGIN {
     port = parts[length(parts)]
     sub(":" port "$", "", addr_port)
     ip = addr_port
+
+    if (proc_clean ~ /docker-proxy/ && (port in docker_map)) {
+        proc_clean = "docker: " docker_map[port]
+    }
     if (ip == "" || ip == "*") ip = "0.0.0.0"
 
     if (port !~ /^[0-9]+$/) next
@@ -90,7 +115,7 @@ BEGIN {
             is_critical = 1
         }
 
-        line = sprintf("%-7s %-6s %-15s %-32s", port, proto, ip, proc_clean)
+        line = sprintf("%-7s %-6s %-15s %-38s", port, proto, ip, proc_clean)
         json_item = sprintf("{\"port\":%s,\"proto\":\"%s\",\"bind\":\"%s\",\"process\":\"%s\"}", port, proto, ip, proc_clean)
 
         if (is_critical == 1) {
@@ -120,11 +145,14 @@ END {
         print "[1] PORT SENSITIF / DATABASE TERBUKA KE PUBLIK (0.0.0.0 / *)"
         print "    (Port di bawah ini dapat diakses langsung dari seluruh internet jika UFW nonaktif)"
         print "----------------------------------------------------------------------"
-        printf "%-7s %-6s %-15s %-32s\n", "PORT", "PROTO", "BIND IP", "PROSES / SERVICE"
+        printf "%-7s %-6s %-15s %-38s\n", "PORT", "PROTO", "BIND IP", "PROSES / SERVICE (CONTAINER)"
         print "----------------------------------------------------------------------"
         for (i = 1; i <= crit_count; i++) {
             print crit_list[i]
         }
+        print "----------------------------------------------------------------------"
+        printf "INFO: %d port web/microservice lainnya sengaja disembunyikan agar\n", other_pub_count
+        print "      tampilan ringkas & fokus pada celah keamanan database/service."
         print "----------------------------------------------------------------------"
         print ""
     }

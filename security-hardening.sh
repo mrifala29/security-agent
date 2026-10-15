@@ -38,6 +38,7 @@ if [ -z "$SERVER" ] || [ -z "$ACTION_TARGET" ]; then
     echo "  [ACTION]"
     echo "    backup                : Cadangkan config OS + Dump Database + Docker Compose (DIGABUNG)"
     echo "    harden_ports          : Terapkan UFW default deny & whitelist IP internal"
+    echo "    migrate_old_ip        : Migrasi IP lama .70 ke IP baru .32 di seluruh .env (Auto-backup)"
     echo "    create_developer_user : Buat akun user developer baru & generate keypair otomatis"
     echo ""
     echo "  [EVALUASI]"
@@ -100,9 +101,10 @@ execute_single_script() {
         echo "Input Key  : $ref_key (Rujukan dari tahap sebelumnya)"
     fi
     echo "======================================================================"
+    echo "Sedang memproses di remote server '$SERVER' (estimasi 10-20 detik, mohon tunggu)..."
 
     # 2. Eksekusi via SSH dengan streaming file asli tanpa manipulasi variabel
-    (echo "$PASS"; cat "$s_file") | sshpass -p "$PASS" ssh -o BatchMode=no -o StrictHostKeyChecking=accept-new "$SERVER" "sudo -S bash -s" > "$raw_tmp" 2>&1
+    (echo "$PASS"; cat "$s_file") | sshpass -p "$PASS" ssh -o ConnectTimeout=20 -o ServerAliveInterval=10 -o IPQoS=none -o BatchMode=no -o StrictHostKeyChecking=accept-new "$SERVER" "sudo -S bash -s" > "$raw_tmp" 2>&1
 
     # Bersihkan prompt sudo baris pertama
     sed -i '' '1{/^\[sudo\] password for /d;}' "$raw_tmp" 2>/dev/null || true

@@ -29,6 +29,7 @@ security-agent/
 │   ├── action/                               # [TAHAP 2: TINDAKAN / PERBAIKAN]
 │   │   ├── backup.sh                         # Cadangkan config OS + Dump Database + Docker Compose (DIGABUNG)
 │   │   ├── harden_ports.sh                   # Terapkan UFW default deny & whitelist IP internal (Anti-gangguan)
+│   │   ├── migrate_old_ip.sh                 # Migrasi IP lama .70 ke IP baru .32 di seluruh file .env (Auto-backup)
 │   │   └── create_developer_user.sh          # Buat akun developer baru & generate keypair otomatis
 │   │
 │   └── evaluasi/                             # [TAHAP 3: EVALUASI / VERIFIKASI]
