@@ -10,6 +10,12 @@
 *.id_rsa
 id_*
 *.pub
+server/**/keys/
+
+# Database dumps & backups
+*.sql
+*.sql.gz
+*.dump
 
 # Logs and Server Output Data (Mencegah data server bocor ke Git)
 *.log

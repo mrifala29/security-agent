@@ -22,17 +22,21 @@ security-agent/
 │
 ├── scripts/                                  # Kumpulan Skrip Alat Kerja (Dibagi per Siklus)
 │   ├── audit/                                # [TAHAP 1: PEMERIKSAAN / READ-ONLY]
-│   │   ├── check_ports.sh                    # Cek port terbuka, firewall, & simpan ports_state.json
-│   │   ├── check_triage.sh                   # Cek jejak cron asing, authorized_keys, proses /tmp
-│   │   └── check_ssh_users.sh                # Cek konfigurasi login SSH & daftar user/sudoers
+│   │   ├── check_ports.sh                    # Cek port 0.0.0.0, status firewall UFW, & IP terhubung
+│   │   ├── check_port_impact.sh              # Analisis dampak: cek apakah penutupan port memutus koneksi aktif
+│   │   ├── check_triage.sh                   # Cek sisa cron backdoor, authorized_keys, proses /tmp
+│   │   └── check_ssh_users.sh                # Cek konfigurasi daemon SSH & privilege user / sudoers
 │   │
 │   ├── action/                               # [TAHAP 2: TINDAKAN / PERBAIKAN]
+│   │   ├── backup_databases.sh               # Dump seluruh database (Postgres host & Docker) + compose
 │   │   ├── backup_configs.sh                 # Backup darurat config server (/etc/ssh, ufw, cron)
-│   │   ├── harden_ports.sh                   # Terapkan UFW default deny & whitelist IP internal
-│   │   └── create_developer_user.sh          # Buat akun developer mandiri dengan SSH Public Key
+│   │   ├── harden_ports.sh                   # Terapkan UFW default deny & whitelist IP internal (Anti-gangguan)
+│   │   └── create_developer_user.sh          # Buat akun developer baru & generate keypair otomatis
 │   │
 │   └── evaluasi/                             # [TAHAP 3: EVALUASI / VERIFIKASI]
-│       └── verify_ports.sh                   # Scorecard validasi: memastikan port benar-benar aman
+│       ├── verify_ports.sh                   # Scorecard validasi: penutupan port & kontinuitas VPC
+│       ├── verify_triage.sh                  # Scorecard validasi: kebersihan cron & direktori temp
+│       └── verify_ssh.sh                     # Scorecard validasi: keamanan akun & status SSH daemon
 │
 ├── server/                                   # Database Log & State Nyata per Server
 │   ├── server-dev/
@@ -155,12 +159,17 @@ flowchart TD
 | :--- | :--- | :--- | :--- |
 | **Audit Full** | `./security-hardening.sh <server> audit` | Menjalankan seluruh audit sekaligus (ports, triage, ssh) | - |
 | **Audit** | `./security-hardening.sh <server> check_ports` | Memetakan port 0.0.0.0, siapa yang konek, dan status firewall | - |
+| **Audit** | `./security-hardening.sh <server> check_port_impact` | Cek dampak: pastikan tidak ada koneksi aktif yang terganggu | - |
 | **Audit** | `./security-hardening.sh <server> check_triage` | Memeriksa sisa cron job asing, SSH key duplikat, dan malware | - |
 | **Audit** | `./security-hardening.sh <server> check_ssh_users` | Memeriksa aturan login SSH dan akun yang memiliki hak sudo | - |
+| **Action** | `./security-hardening.sh <server> backup_databases` | Dump seluruh database (Postgres host & Docker) + compose | - |
 | **Action** | `./security-hardening.sh <server> backup_configs` | Membuat cadangan file konfigurasi sensitif ke `/var/backups/` | - |
-| **Action** | `./security-hardening.sh <server> harden_ports [ID]` | Mengaktifkan UFW default deny + whitelist IP internal | `[ID_AUDIT]` (Opsional) |
-| **Action** | `./security-hardening.sh <server> create_developer_user` | Membuat akun developer baru dengan SSH Public Key mandiri | - |
+| **Action** | `./security-hardening.sh <server> harden_ports [ID]` | Mengaktifkan UFW default deny + whitelist IP internal (Anti-gangguan) | `[ID_AUDIT]` (Opsional) |
+| **Action** | `./security-hardening.sh <server> create_developer_user <user>` | Buat akun developer baru & generate keypair (private+public) otomatis | Nama User |
+| **Evaluasi Full** | `./security-hardening.sh <server> evaluasi` | Menjalankan seluruh evaluasi sekaligus (ports, triage, ssh) | - |
 | **Evaluasi** | `./security-hardening.sh <server> verify_ports [ID]` | Menjalankan scorecard verifikasi keberhasilan penutupan port | `[ID_ACTION]` (Opsional) |
+| **Evaluasi** | `./security-hardening.sh <server> verify_triage` | Menjalankan scorecard verifikasi kebersihan cron & /tmp | - |
+| **Evaluasi** | `./security-hardening.sh <server> verify_ssh` | Menjalankan scorecard verifikasi konfigurasi daemon SSH | - |
 
 ---
 

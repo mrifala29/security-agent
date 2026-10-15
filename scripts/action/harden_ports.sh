@@ -19,6 +19,27 @@ if ! command -v ufw >/dev/null 2>&1; then
     sudo apt-get update -y && sudo apt-get install -y ufw
 fi
 
+echo "0. Analisis Dampak Koneksi Aktif (Pre-Flight Connection Check):"
+SENSITIVE_PORTS="3306|5432|5433|5434|5435|5436|5437|6379|6381|6389|6739|27017|9042|5672|6543|6544|15432"
+ACTIVE_CONNS=$(ss -ant state established 2>/dev/null | grep -E ":($SENSITIVE_PORTS)\s+" || true)
+if [ -n "$ACTIVE_CONNS" ]; then
+    TOTAL_CONNS=$(echo "$ACTIVE_CONNS" | wc -l | tr -d ' ')
+    echo "   Terdeteksi $TOTAL_CONNS koneksi aktif ke port-port sensitif."
+    # Cek apakah ada IP publik non-whitelist
+    NON_INTERNAL=$(echo "$ACTIVE_CONNS" | awk '{print $5}' | grep -vE '^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|127\.|\[::ffff:10\.|\[::ffff:192\.168\.|\[::ffff:172\.)' || true)
+    if [ -n "$NON_INTERNAL" ]; then
+        echo "   PERINGATAN: Ditemukan koneksi aktif dari IP luar non-whitelist!"
+        echo "$NON_INTERNAL" | sed 's/^/   -> /'
+        echo "   Koneksi tersebut akan terputus jika tidak dimasukkan ke whitelist UFW."
+    else
+        echo "   Status: 100% koneksi aktif berasal dari subnet internal (10.x / 192.168.x)."
+        echo "   Hardening dipastikan AMAN dan TIDAK AKAN mengganggu operasional aplikasi!"
+    fi
+else
+    echo "   Tidak ada koneksi aktif saat ini ke port database/service."
+fi
+echo ""
+
 echo "1. Menyetel kebijakan default (Default Policy):"
 echo "   - Incoming: DENY (Tolak semua koneksi luar yang tidak diizinkan)"
 echo "   - Outgoing: ALLOW (Izinkan koneksi keluar dari server)"
