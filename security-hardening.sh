@@ -90,9 +90,6 @@ execute_single_script() {
     local run_dir="server/${SERVER}/${stage}/${run_key}"
     mkdir -p "$run_dir"
 
-    # Buat pointer link ke run terbaru
-    ln -sfn "$run_key" "server/${SERVER}/${stage}/${s_name}_latest" 2>/dev/null || true
-
     local raw_tmp
     raw_tmp=$(mktemp)
     local log_file="${run_dir}/${s_name}.log"
@@ -183,10 +180,13 @@ if [ "$ACTION_TARGET" == "audit" ]; then
     echo "Setiap hasil disimpan rapi dalam sub-direktori unik di: server/${SERVER}/audit/"
     echo "======================================================================"
 else
-    # Jika menjalankan action/evaluasi tanpa input key eksplisit, coba cari key audit terbaru
+    # Jika menjalankan action/evaluasi tanpa input key eksplisit, ambil ID direktori audit terbaru
     RESOLVED_KEY="$INPUT_KEY"
-    if [ -z "$RESOLVED_KEY" ] && [ -L "server/${SERVER}/audit/check_ports_latest" ]; then
-        RESOLVED_KEY=$(readlink "server/${SERVER}/audit/check_ports_latest" || true)
+    if [ -z "$RESOLVED_KEY" ] && [ -d "server/${SERVER}/audit" ]; then
+        LATEST_DIR=$(find "server/${SERVER}/audit" -mindepth 1 -maxdepth 1 -type d -name "check_ports_*" 2>/dev/null | sort | tail -n 1)
+        if [ -n "$LATEST_DIR" ]; then
+            RESOLVED_KEY=$(basename "$LATEST_DIR")
+        fi
     fi
 
     execute_single_script "$ACTION_TARGET" "$RESOLVED_KEY"

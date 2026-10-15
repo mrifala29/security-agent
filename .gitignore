@@ -16,7 +16,6 @@ id_*
 server/**/*.log
 server/**/*.json
 server/**/*.tmp
-server/**/*_latest
 *.tmp
 
 # Pertahankan struktur folder di Git
