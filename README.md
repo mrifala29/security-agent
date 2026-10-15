@@ -66,24 +66,25 @@ Alur kerja proyek ini menghubungkan tiga pilar siklus secara berantai menggunaka
 ```mermaid
 flowchart TD
     subgraph S1["Tahap 1: AUDIT (Pemeriksaan)"]
-        A["Jalankan: ./security-hardening.sh server-dev check_ports"]
+        A["Jalankan: ./security-hardening.sh server-dev audit"]
         A --> B["Dibuat Folder ID: server/server-dev/audit/check_ports_YYYYMMDD_HHMMSS/"]
         B --> C["Disimpan: check_ports.log & ports_state.json"]
+        B --> C2["Disimpan: triage_state.json & ssh_users_state.json"]
     end
 
     subgraph S2["Tahap 2: BRIEFING & ACTION (Perbaikan)"]
-        C -->|"ID Audit sebagai input"| D["AI membaca ports_state.json + aturan foundation/02-network-and-ports.md"]
-        D --> E["AI mengajukan rencana: port yang ditutup & IP yang di-whitelist"]
+        C -->|"ID Audit sebagai rujukan"| D["AI membaca ports_state.json + aturan foundation/"]
+        D --> E["AI menganalisis dampak koneksi: port sensitif & IP internal"]
         E --> F{"Persetujuan Anda di Chat"}
-        F -- Setuju --> G["Jalankan: ./security-hardening.sh server-dev backup_configs"]
+        F -- Setuju --> G["Jalankan: ./security-hardening.sh server-dev backup"]
         G --> H["Jalankan: ./security-hardening.sh server-dev harden_ports [ID_AUDIT]"]
         H --> I["Dibuat Folder ID: server/server-dev/action/harden_ports_YYYYMMDD_HHMMSS/"]
         I --> J["Disimpan: harden_ports.log & input_ref.json"]
     end
 
     subgraph S3["Tahap 3: EVALUASI (Verifikasi)"]
-        J -->|"ID Action sebagai input"| K["Jalankan: ./security-hardening.sh server-dev verify_ports [ID_ACTION]"]
-        K --> L["Dibuat Folder ID: server/server-dev/evaluasi/verify_ports_YYYYMMDD_HHMMSS/"]
+        J -->|"ID Action sebagai rujukan"| K["Jalankan: ./security-hardening.sh server-dev verify [ID_ACTION]"]
+        K --> L["Dibuat Folder ID: server/server-dev/evaluasi/verify_YYYYMMDD_HHMMSS/"]
         L --> M["Scorecard Evaluasi: Memastikan port publik tertutup & koneksi internal tetap lancar"]
     end
 ```
@@ -96,40 +97,58 @@ flowchart TD
 * **Tujuan:** Mengambil potret kondisi riil server saat ini secara *read-only* tanpa mengubah sistem.
 * **Perintah yang dijalankan:**
   ```bash
-  # Audit satuan (contoh: port jaringan)
-  ./security-hardening.sh server-dev check_ports
-
-  # ATAU Audit Lengkap sekaligus (ports, triage sisa backdoor, dan akun/SSH)
+  # Menjalankan seluruh audit otomatis (Port + Dampak Koneksi, Triage Backdoor, dan Akun/SSH)
   ./security-hardening.sh server-dev audit
+
+  # ATAU jalankan satuan:
+  ./security-hardening.sh server-dev check_ports
+  ./security-hardening.sh server-dev check_triage
+  ./security-hardening.sh server-dev check_ssh_users
   ```
 * **Hasil di File System:**
   Sistem membuat folder ID unik:
   `server/server-dev/audit/check_ports_YYYYMMDD_HHMMSS/`
-  Di dalamnya tersimpan:
-  1. `check_ports.log` $\rightarrow$ Tampilan bersih daftar port dan IP luar yang terhubung.
-  2. `ports_state.json` $\rightarrow$ Data memori port sensitif (Postgres 5432, MySQL 3306, FerretDB 27017) dan IP rekanan internal (seperti `10.0.0.1`) yang **wajib di-whitelist**.
+  Di dalamnya tersimpan log bersih dan file state memori (`ports_state.json`, `triage_state.json`, `ssh_users_state.json`).
+
+#### 🔍 Dasar Deteksi Cron Job: "Mencurigakan" vs "Bersih" (`check_triage.sh`)
+Skrip `check_triage.sh` memeriksa seluruh lokasi crontab di sistem Linux:
+- `/etc/crontab` (Cron utama OS)
+- `/etc/cron.d/*` (Cron modular aplikasi)
+- `/var/spool/cron/crontabs/*` (Cron milik user root dan seluruh user biasa)
+
+**Pola yang Dilabeli "Mencurigakan" (Indikator Backdoor / Malware):**
+Sebuah tugas cron akan diberi tanda **PERINGATAN (Mencurigakan)** jika baris perintahnya mengandung pola *malicious persistence* yang lazim dipakai penyerang pasca-serangan:
+1. **Download & Eksekusi Otomatis:** Perintah `curl` atau `wget` yang langsung di-pipe ke shell (contoh: `curl ... | bash` atau `wget ... -O- | sh`).
+2. **Reverse Shell:** Membuka koneksi remote diam-diam menggunakan `nc -e`, `/dev/tcp`, `bash -i`, atau skrip socket `python`/`perl`.
+3. **Eksekusi dari Folder Sementara:** Menjalankan script tersembunyi dari direktori `/tmp/`, `/dev/shm/`, atau `/var/tmp/`.
+
+Jika tidak ditemukan pola-pola di atas, maka sistem menetapkan status **Bersih** (hanya berisi cron sistem standar seperti `cron.daily`, `disk-guard`, atau `docker-prune`).
 
 ---
 
-### 2. Tahap Briefing & Action (Perbaikan / Remediasi)
-* **Tujuan:** Menutup celah keamanan yang ditemukan berdasarkan aturan baku di `foundation/` tanpa mengganggu operasional aplikasi.
-* **Alur Memory:**
-  AI Antigravity membaca `ports_state.json` dari folder ID audit tadi, lalu menyusun proposal tindakan yang aman untuk Anda tinjau:
-  - Buka port 22 untuk SSH admin.
-  - Whitelist IP `10.0.0.1` ke port PostgreSQL `5432`.
-  - Tutup akses publik ke port database lainnya.
+### 2. Tahap Briefing & Action (Pencadangan & Perbaikan)
+* **Tujuan:** Menutup celah keamanan port publik dan mengunci firewall tanpa memutus koneksi aplikasi maupun microservices.
 * **Perintah yang dijalankan:**
   ```bash
-  # Langkah A: Backup konfigurasi penting terlebih dahulu
-  ./security-hardening.sh server-dev backup_configs
+  # Langkah A: Pencadangan Penuh (OS Config + Database Dump SQL + Docker Compose)
+  ./security-hardening.sh server-dev backup
 
-  # Langkah B: Terapkan aturan hardening
-  # (Bisa memasukkan ID audit secara spesifik, atau otomatis mengambil audit terbaru)
-  ./security-hardening.sh server-dev harden_ports check_ports_20261015_133703
+  # Langkah B: Kunci Port Publik & Aktifkan Firewall UFW dengan Whitelist VPC
+  ./security-hardening.sh server-dev harden_ports
+
+  # Langkah C (Opsional): Buat Akun Developer Baru beserta Keypair Otomatis
+  ./security-hardening.sh server-dev create_developer_user <nama_user>
   ```
-* **Hasil di File System:**
-  Dibuat folder ID: `server/server-dev/action/harden_ports_YYYYMMDD_HHMMSS/`
-  Di dalamnya tercatat `harden_ports.log` dan file `input_ref.json` yang mencatat ID audit asal rujukan tindakan tersebut.
+
+#### 🛡️ Proteksi Docker Microservices & Hairpin NAT (`harden_ports.sh`)
+Banyak microservice Docker lokal di server yang memanggil database/Redis menggunakan IP publik server sendiri (misal: `POSTGRES_HOST=163.128.54.32`).
+Di Linux, koneksi ini melewati mekanisme **Docker Hairpin NAT**.
+
+Agar microservices tersebut **tidak terblokir sama sekali oleh UFW**, skrip `harden_ports.sh` menerapkan whitelist berlapis:
+1. **Subnet Docker Internal:** `172.16.0.0/12` (meliputi seluruh IP container `172.16.x.x` s/d `172.31.x.x`).
+2. **Interface Bridge Docker:** `docker0` dan seluruh bridge kustom Docker compose (`br-+`).
+3. **Loopback & Self Public IP:** Mengizinkan interface `lo` serta IP publik server itu sendiri (`163.128.54.32`) sehingga paket Hairpin NAT dari container lokal diizinkan tembus tanpa hambatan.
+4. **Subnet Jaringan Internal VPC:** `10.0.0.0/8` dan `192.168.0.0/16` agar server rekanan tetap terhubung lancar.
 
 ---
 
@@ -137,15 +156,16 @@ flowchart TD
 * **Tujuan:** Memvalidasi secara ilmiah bahwa celah sudah benar-benar tertutup dan membuktikan tidak ada aplikasi sah yang terputus.
 * **Perintah yang dijalankan:**
   ```bash
-  ./security-hardening.sh server-dev verify_ports
+  ./security-hardening.sh server-dev verify
   ```
 * **Hasil di File System:**
-  Dibuat folder ID: `server/server-dev/evaluasi/verify_ports_YYYYMMDD_HHMMSS/`
-  Sistem mengeluarkan **Scorecard Kelulusan**:
+  Dibuat folder ID: `server/server-dev/evaluasi/verify_YYYYMMDD_HHMMSS/`
+  Sistem mengeluarkan **Scorecard Kelulusan 1 Lembar**:
   - `[LULUS]` Status Firewall UFW aktif dengan default policy DENY.
-  - `[LULUS]` Port database (3306, 5432, 27017, 6379) tertahan oleh firewall dari internet publik.
   - `[LULUS]` Akses manajemen SSH tetap terbuka (bebas risiko lockout).
   - `[LULUS]` Koneksi antar-server di jaringan internal VPC tetap berjalan normal.
+  - `[LULUS]` Direktori `/tmp` dan crontab terbukti bersih dari jejak malware.
+  - `[LULUS]` Akun ber-privilege UID 0 terbukti hanya akun root resmi.
 
 ---
 

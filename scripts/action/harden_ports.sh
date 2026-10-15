@@ -75,8 +75,56 @@ sudo ufw allow from 172.16.0.0/12 comment 'Docker Internal Subnet'
 echo "   - Whitelist subnet lokal 192.168.0.0/16..."
 sudo ufw allow from 192.168.0.0/16 comment 'Private Subnet 192.168.x'
 
+echo "   - Whitelist Loopback interface (lo)..."
+sudo ufw allow in on lo comment 'Localhost Loopback'
+
+echo "   - Whitelist Docker Bridge (docker0 & br-+)..."
+sudo ufw allow in on docker0 comment 'Docker Default Bridge'
+sudo ufw allow in on br-+ comment 'Docker Custom Bridges' 2>/dev/null || true
+
+HOST_PUB_IP="163.128.54.32"
+OLD_DEV_IP="103.230.81.70"
+
+echo "   - Whitelist IP Publik Server ($HOST_PUB_IP) untuk Hairpin NAT Microservices..."
+sudo ufw allow from "$HOST_PUB_IP" comment 'Server Self Public IP (Microservices Loopback)'
+
+echo "   - Whitelist IP Server Dev Lama ($OLD_DEV_IP)..."
+sudo ufw allow from "$OLD_DEV_IP" comment 'Old Dev Server IP'
+
 echo ""
-echo "5. Mengaktifkan Firewall (UFW)..."
+echo "5. Mengamankan Docker Published Database Ports (Rantai DOCKER-USER):"
+# Di Linux, Docker mem-bypass UFW pada rantai FORWARD secara default.
+# Rantai DOCKER-USER adalah standar resmi Docker untuk memfilter port container.
+EXT_IF=$(ip route show default 2>/dev/null | awk '{print $5}' | head -n 1 || echo "enp5s0")
+if [ -n "$EXT_IF" ]; then
+    echo "   - Menerapkan filter keamanan pada interface publik: $EXT_IF..."
+    sudo iptables -N DOCKER-USER 2>/dev/null || true
+    sudo iptables -F DOCKER-USER 2>/dev/null || true
+    
+    # 1. Izinkan koneksi yang sudah terbentuk (Established/Related)
+    sudo iptables -A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+    
+    # 2. Whitelist Subnet Internal & Hairpin NAT
+    sudo iptables -A DOCKER-USER -s 10.0.0.0/8 -j ACCEPT
+    sudo iptables -A DOCKER-USER -s 172.16.0.0/12 -j ACCEPT
+    sudo iptables -A DOCKER-USER -s 192.168.0.0/16 -j ACCEPT
+    sudo iptables -A DOCKER-USER -s "$HOST_PUB_IP" -j ACCEPT
+    sudo iptables -A DOCKER-USER -s "$OLD_DEV_IP" -j ACCEPT
+    
+    # 3. Izinkan semua traffic antar-container lokal (bukan dari interface publik)
+    sudo iptables -A DOCKER-USER ! -i "$EXT_IF" -j ACCEPT
+    
+    # 4. Blokir IP internet publik asing ke port database/cache container
+    CONTAINER_DB_PORTS="3306,5433,5434,5435,5436,5437,6379,6381,6389,6543,6739,9042,15432"
+    sudo iptables -A DOCKER-USER -i "$EXT_IF" -p tcp -m multiport --dports "$CONTAINER_DB_PORTS" -j DROP
+    
+    # 5. Kembalikan port non-database (misal web/app port) ke aturan Docker default
+    sudo iptables -A DOCKER-USER -j RETURN
+    echo "   -> Proteksi DOCKER-USER berhasil aktif (Port DB Container aman dari pihak luar)!"
+fi
+
+echo ""
+echo "6. Mengaktifkan Firewall (UFW)..."
 sudo ufw --force enable
 
 echo ""

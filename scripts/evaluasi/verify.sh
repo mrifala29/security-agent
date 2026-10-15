@@ -36,6 +36,15 @@ else
     SCORE_WARN=$((SCORE_WARN + 1))
 fi
 
+# Cek proteksi Docker Database Container (DOCKER-USER)
+if sudo iptables -L DOCKER-USER -n 2>/dev/null | grep -q "DROP"; then
+    echo "    Proteksi DB Docker       : AKTIF (LULUS - Rantai DOCKER-USER menutup akses luar)"
+    SCORE_PASS=$((SCORE_PASS + 1))
+else
+    echo "    Proteksi DB Docker       : PERINGATAN (Rantai DOCKER-USER belum memfilter akses luar)"
+    SCORE_WARN=$((SCORE_WARN + 1))
+fi
+
 # Cek traffic internal VPC
 INTERNAL_ESTAB=$(ss -ant state established 2>/dev/null | grep -E '10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|192\.168\.' | wc -l | tr -d ' ' || echo "0")
 echo "    Koneksi Internal VPC     : $INTERNAL_ESTAB koneksi aktif berjalan lancar (LULUS)"

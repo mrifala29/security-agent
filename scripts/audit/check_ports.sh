@@ -173,12 +173,17 @@ else
         split(local_part, lparts, ":")
         lport = lparts[length(lparts)]
 
+        # Hanya ambil jika lport adalah port listening sensitif (bukan ephemeral outgoing)
+        if (lport !~ /^(3306|5432|5433|5434|5435|5436|5437|6379|6381|6389|6739|27017|9042|5672|6543|6544|15432|9000|9001)$/) {
+            next
+        }
+
         rip = peer_part
         gsub(/\[|\]/, "", rip)
         sub(/^::ffff:/, "", rip)
         sub(/:[0-9]+$/, "", rip)
 
-        if (rip == "" || lport !~ /^[0-9]+$/) next
+        if (rip == "") next
         total_conns++
 
         key = sprintf("%s|%s", lport, rip)
@@ -189,8 +194,16 @@ else
         counts[key]++
     }
     END {
-        printf "  %-7s  %-22s  %-12s  %s\n", "PORT", "REMOTE IP", "KONEKSI", "STATUS DAMPAK HARDENING"
-        printf "  %-7s  %-22s  %-12s  %s\n", "-------", "----------------------", "------------", "-----------------------"
+        if (pair_count == 0) {
+            print "  Status : Tidak ada koneksi aktif dari luar ke port listening database."
+            print "  Dampak : Penutupan port 100% AMAN (Nol gangguan)."
+            print "----------------------------------------------------------------------"
+            printf "[]" > int_file
+            exit 0
+        }
+
+        printf "  %-7s  %-18s  %-20s  %-11s  %s\n", "PORT", "LAYANAN (SERVICE)", "REMOTE IP", "KONEKSI", "STATUS DAMPAK HARDENING"
+        printf "  %-7s  %-18s  %-20s  %-11s  %s\n", "-------", "------------------", "--------------------", "-----------", "-----------------------"
 
         json_int_count = 0
 
@@ -201,7 +214,19 @@ else
             ip = parts[2]
             cnt = counts[k]
 
+            # Nama Layanan
+            svc = "Unknown"
+            if (port ~ /^(5432|5433|5434|5435|5436|5437|15432)$/) svc = "PostgreSQL"
+            else if (port ~ /^(6543|6544)$/) svc = "TimescaleDB"
+            else if (port == "3306") svc = "MySQL / MariaDB"
+            else if (port ~ /^(6379|6381|6389|6739)$/) svc = "Redis"
+            else if (port ~ /^(5672|15672|25672)$/) svc = "RabbitMQ"
+            else if (port ~ /^(27017|27018)$/) svc = "FerretDB / Mongo"
+            else if (port == "9042") svc = "ScyllaDB"
+            else if (port == "9000" || port == "9001") svc = "MinIO Storage"
+
             is_safe = 0
+            # Aman jika IP berasal dari VPC (10.x, 192.168.x), Docker (172.16-31.x), atau Localhost (127.x)
             if (ip ~ /^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|127\.)/) {
                 is_safe = 1
                 safe_conns += cnt
@@ -214,7 +239,7 @@ else
                 status_text = "PERINGATAN (IP Publik - Akan Terputus!)"
             }
 
-            printf "  %-7s  %-22s  %-12s  %s\n", port, ip, (cnt " session"), status_text
+            printf "  %-7s  %-18s  %-20s  %-11s  %s\n", port, svc, ip, (cnt " sess"), status_text
         }
 
         print "----------------------------------------------------------------------"
