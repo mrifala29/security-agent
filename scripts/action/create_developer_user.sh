@@ -41,10 +41,17 @@ USER_HOME=$(eval echo "~$DEV_USER")
 sudo mkdir -p "$USER_HOME/.ssh"
 sudo chmod 700 "$USER_HOME/.ssh"
 
-# Tambahkan public key
-echo "$PUB_KEY" | sudo tee -a "$USER_HOME/.ssh/authorized_keys" >/dev/null
+# Tambahkan public key (idempoten)
+sudo touch "$USER_HOME/.ssh/authorized_keys"
+if ! sudo grep -qxF "$PUB_KEY" "$USER_HOME/.ssh/authorized_keys" 2>/dev/null; then
+    echo "$PUB_KEY" | sudo tee -a "$USER_HOME/.ssh/authorized_keys" >/dev/null
+fi
 sudo chmod 600 "$USER_HOME/.ssh/authorized_keys"
 sudo chown -R "$DEV_USER:$DEV_USER" "$USER_HOME/.ssh"
+
+echo "4. Mengonfigurasi hak akses Sudo (Passwordless Sudo untuk User Berbasis SSH Key)..."
+echo "$DEV_USER ALL=(ALL) NOPASSWD:ALL" | sudo tee "/etc/sudoers.d/$DEV_USER" >/dev/null
+sudo chmod 440 "/etc/sudoers.d/$DEV_USER"
 
 echo "======================================================================"
 echo "AKUN DEVELOPER SELESAI DIBUAT!"

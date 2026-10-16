@@ -228,50 +228,44 @@ elif [ "$ACTION_TARGET" == "create_developer_user" ]; then
 
     KEY_DIR="server/${SERVER}/keys/${DEV_USER}"
     mkdir -p "$KEY_DIR"
-    PRIV_KEY="${KEY_DIR}/id_ed25519_${DEV_USER}"
-    PUB_KEY_FILE="${KEY_DIR}/id_ed25519_${DEV_USER}.pub"
+    PRIV_KEY="${KEY_DIR}/${SERVER}-${DEV_USER}"
+    PUB_KEY_FILE="${KEY_DIR}/${SERVER}-${DEV_USER}.pub"
 
     if [ ! -f "$PRIV_KEY" ]; then
         echo "1. Men-generate SSH Keypair (ED25519) secara lokal..."
         ssh-keygen -t ed25519 -C "${DEV_USER}@${SERVER}" -f "$PRIV_KEY" -N "" -q
         chmod 600 "$PRIV_KEY"
         chmod 644 "$PUB_KEY_FILE"
-        echo "   -> Private Key : $PRIV_KEY"
-        echo "   -> Public Key  : $PUB_KEY_FILE"
+        echo "   -> Private Key : $PRIV_KEY (Kirim file ini ke Developer)"
+        echo "   -> Public Key  : $PUB_KEY_FILE (Otomatis didaftarkan ke Server)"
     else
         echo "1. Menggunakan SSH Keypair yang sudah ada di lokal..."
-        echo "   -> Private Key : $PRIV_KEY"
-        echo "   -> Public Key  : $PUB_KEY_FILE"
+        echo "   -> Private Key : $PRIV_KEY (Kirim file ini ke Developer)"
+        echo "   -> Public Key  : $PUB_KEY_FILE (Otomatis didaftarkan ke Server)"
     fi
 
     PUB_KEY_CONTENT=$(cat "$PUB_KEY_FILE")
 
     echo ""
     echo "2. Mendaftarkan user '$DEV_USER' dan Public Key ke server '$SERVER'..."
-    sshpass -p "$PASS" ssh -o BatchMode=no -o StrictHostKeyChecking=accept-new "$SERVER" "sudo -S bash -s '$DEV_USER' '$PUB_KEY_CONTENT'" <<EOF
+    sshpass -p "$PASS" ssh -o ConnectTimeout=15 -o IPQoS=none -o BatchMode=no -o StrictHostKeyChecking=accept-new "$SERVER" "sudo -S bash -s '$DEV_USER' '$PUB_KEY_CONTENT'" <<EOF
 $PASS
 $(cat scripts/action/create_developer_user.sh)
 EOF
 
-    # Dapatkan IP server untuk petunjuk login
-    SERVER_IP=$(sshpass -p "$PASS" ssh -o BatchMode=no -o StrictHostKeyChecking=accept-new "$SERVER" "hostname -I | awk '{print \$1}'" 2>/dev/null || echo "$SERVER")
+    # Dapatkan IP publik server untuk petunjuk login developer
+    SERVER_IP=$(ssh -G "$SERVER" 2>/dev/null | awk '$1 == "hostname" {print $2}' || echo "$SERVER")
 
     echo ""
     echo "======================================================================"
     echo "AKUN DEVELOPER BERHASIL DIBUAT DENGAN KEYPAIR!"
     echo "======================================================================"
     echo "Nama User        : $DEV_USER"
-    echo "Server Target    : $SERVER ($SERVER_IP)"
+    echo "Server Target    : $SERVER (IP Publik: $SERVER_IP)"
     echo "Hak Akses        : Sudo / Admin"
     echo "Private Key (HP) : $PRIV_KEY"
-    echo "Public Key (PUB) : $PUB_KEY_FILE"
-    echo ""
-    echo "Perintah Login untuk Developer:"
-    echo "  ssh -i $PRIV_KEY $DEV_USER@$SERVER_IP"
-    echo ""
-    echo "CATATAN KEAMANAN:"
-    echo "- Berikan file private key '$PRIV_KEY' secara privat kepada developer."
-    echo "- Folder 'server/**/keys/' sudah otomatis di-ignore oleh Git (.gitignore)."
+    echo "Public Key (PUB) : $PUB_KEY_FILE (Sudah terpasang di server)"
+    echo "Perintah Login   : ssh -i $(basename "$PRIV_KEY") $DEV_USER@$SERVER_IP"
     echo "======================================================================"
 
 else

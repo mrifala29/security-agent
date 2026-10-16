@@ -100,6 +100,12 @@ else
     SCORE_WARN=$((SCORE_WARN + 1))
 fi
 
+DEV_USERS=$(grep -E '^(affan-ba|gilang-dev|akbar-dev|wilson-ai|ghoffar-pm|rifal-infra):' /etc/passwd 2>/dev/null | cut -d: -f1 | tr '\n' ' ' || true)
+if [ -n "$DEV_USERS" ]; then
+    echo "    Akun Developer Terpasang : $DEV_USERS(LULUS - Siap Pakai)"
+    SCORE_PASS=$((SCORE_PASS + 1))
+fi
+
 # ------------------------------------------------------------------------------
 # Ringkasan Akhir
 # ------------------------------------------------------------------------------
